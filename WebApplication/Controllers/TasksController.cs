@@ -1,66 +1,103 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using MyToDoApp.Models;
 
-namespace MyToDoApp.Controllers;
-
-[ApiController]
-[Route("api/[controller]")]
-public class TasksController : ControllerBase
+namespace MyToDoApp.Controllers
 {
-    // Тимчасове зберігання в пам'яті
-    private static List<TaskItem> _tasks = new List<TaskItem>();
-
-    // GET: api/tasks
-    [HttpGet]
-    public IActionResult GetAllTasks()
+    [Authorize] // Лише авторизованим користувачам
+    [ApiController]
+    [Route("api/[controller]")]
+    public class TasksController : ControllerBase
     {
-        return Ok(_tasks);
-    }
+        private readonly AppDbContext _context;
+        private readonly UserManager<ApplicationUser> _userManager;
 
-    // GET: api/tasks/5
-    [HttpGet("{id}")]
-    public IActionResult GetTaskById(int id)
-    {
-        var task = _tasks.FirstOrDefault(t => t.Id == id);
-        if (task == null) return NotFound();
-        return Ok(task);
-    }
+        public TasksController(AppDbContext context, UserManager<ApplicationUser> userManager)
+        {
+            _context = context;
+            _userManager = userManager;
+        }
 
-    // POST: api/tasks
-    [HttpPost]
-    public IActionResult CreateTask([FromBody] TaskItem newTask)
-    {
-        // Генеруємо Id
-        newTask.Id = newTask.Id == 0
-            ? new System.Random().Next(1, 999999999)
-            : newTask.Id;
+        // GET: api/tasks
+        [HttpGet]
+        public async Task<IActionResult> GetAllTasks()
+        {
+            var userId = _userManager.GetUserId(User);
 
-        _tasks.Add(newTask);
-        return CreatedAtAction(nameof(GetTaskById), new { id = newTask.Id }, newTask);
-    }
+            // Вибираємо лише ті TaskItems, що належать поточному користувачу
+            var tasks = await _context.TaskItems
+                .Where(t => t.OwnerId == userId)
+                .ToListAsync();
 
-    // PUT: api/tasks/5
-    [HttpPut("{id}")]
-    public IActionResult UpdateTask(int id, [FromBody] TaskItem updatedTask)
-    {
-        var task = _tasks.FirstOrDefault(t => t.Id == id);
-        if (task == null) return NotFound();
+            return Ok(tasks);
+        }
 
-        task.Name = updatedTask.Name;
-        task.DueDate = updatedTask.DueDate;
-        task.Completed = updatedTask.Completed;
+        // GET: api/tasks/5
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetTaskById(int id)
+        {
+            var userId = _userManager.GetUserId(User);
 
-        return NoContent();
-    }
+            // Спочатку шукаємо TaskItem
+            var task = await _context.TaskItems
+                .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
 
-    // DELETE: api/tasks/5
-    [HttpDelete("{id}")]
-    public IActionResult DeleteTask(int id)
-    {
-        var task = _tasks.FirstOrDefault(t => t.Id == id);
-        if (task == null) return NotFound();
+            if (task == null) return NotFound();
+            return Ok(task);
+        }
 
-        _tasks.Remove(task);
-        return NoContent();
+        // POST: api/tasks
+        [HttpPost]
+        public async Task<IActionResult> CreateTask([FromBody] TaskItem newTask)
+        {
+            var userId = _userManager.GetUserId(User);
+
+            // Встановлюємо власника
+            newTask.OwnerId = userId;
+
+            _context.TaskItems.Add(newTask);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetTaskById), new { id = newTask.Id }, newTask);
+        }
+
+        // PUT: api/tasks/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateTask(int id, [FromBody] TaskItem updatedTask)
+        {
+            var userId = _userManager.GetUserId(User);
+
+            // Перевіряємо, чи існує TaskItem, який належить поточному користувачеві
+            var task = await _context.TaskItems
+                .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
+
+            if (task == null) return NotFound();
+
+            // Оновлюємо поля
+            task.Name = updatedTask.Name;
+            task.DueDate = updatedTask.DueDate;
+            task.Completed = updatedTask.Completed;
+
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        // DELETE: api/tasks/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteTask(int id)
+        {
+            var userId = _userManager.GetUserId(User);
+
+            var task = await _context.TaskItems
+                .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
+
+            if (task == null) return NotFound();
+
+            _context.TaskItems.Remove(task);
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
     }
 }
