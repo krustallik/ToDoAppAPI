@@ -25,12 +25,9 @@ namespace MyToDoApp.Controllers
         public async Task<IActionResult> GetAllTasks()
         {
             var userId = _userManager.GetUserId(User);
-
-            // Вибираємо лише ті TaskItems, що належать поточному користувачу
             var tasks = await _context.TaskItems
                 .Where(t => t.OwnerId == userId)
                 .ToListAsync();
-
             return Ok(tasks);
         }
 
@@ -39,12 +36,11 @@ namespace MyToDoApp.Controllers
         public async Task<IActionResult> GetTaskById(int id)
         {
             var userId = _userManager.GetUserId(User);
-
-            // Спочатку шукаємо TaskItem
             var task = await _context.TaskItems
                 .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
 
-            if (task == null) return NotFound();
+            if (task == null)
+                return NotFound();
             return Ok(task);
         }
 
@@ -53,13 +49,9 @@ namespace MyToDoApp.Controllers
         public async Task<IActionResult> CreateTask([FromBody] TaskItem newTask)
         {
             var userId = _userManager.GetUserId(User);
-
-            // Встановлюємо власника
             newTask.OwnerId = userId;
-
             _context.TaskItems.Add(newTask);
             await _context.SaveChangesAsync();
-
             return CreatedAtAction(nameof(GetTaskById), new { id = newTask.Id }, newTask);
         }
 
@@ -68,17 +60,16 @@ namespace MyToDoApp.Controllers
         public async Task<IActionResult> UpdateTask(int id, [FromBody] TaskItem updatedTask)
         {
             var userId = _userManager.GetUserId(User);
-
-            // Перевіряємо, чи існує TaskItem, який належить поточному користувачеві
             var task = await _context.TaskItems
                 .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
 
-            if (task == null) return NotFound();
+            if (task == null)
+                return NotFound();
 
-            // Оновлюємо поля
             task.Name = updatedTask.Name;
             task.DueDate = updatedTask.DueDate;
             task.Completed = updatedTask.Completed;
+            task.IsImportant = updatedTask.IsImportant;
 
             await _context.SaveChangesAsync();
             return NoContent();
@@ -89,15 +80,48 @@ namespace MyToDoApp.Controllers
         public async Task<IActionResult> DeleteTask(int id)
         {
             var userId = _userManager.GetUserId(User);
-
             var task = await _context.TaskItems
                 .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
 
-            if (task == null) return NotFound();
+            if (task == null)
+                return NotFound();
 
             _context.TaskItems.Remove(task);
             await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        // DELETE: api/tasks/completed
+        [HttpDelete("completed")]
+        public async Task<IActionResult> DeleteCompletedTasks()
+        {
+            var userId = _userManager.GetUserId(User);
+            var completedTasks = await _context.TaskItems
+                .Where(t => t.OwnerId == userId && t.Completed)
+                .ToListAsync();
+
+            if (completedTasks.Any())
+            {
+                _context.TaskItems.RemoveRange(completedTasks);
+                await _context.SaveChangesAsync();
+            }
+            return NoContent();
+        }
+
+        // PUT: api/tasks/5/priority
+        [HttpPut("{id}/priority")]
+        public async Task<IActionResult> ToggleTaskPriority(int id)
+        {
+            var userId = _userManager.GetUserId(User);
+            var task = await _context.TaskItems
+                .FirstOrDefaultAsync(t => t.Id == id && t.OwnerId == userId);
+
+            if (task == null)
+                return NotFound();
+
+            task.IsImportant = !task.IsImportant;
+            await _context.SaveChangesAsync();
+            return Ok(task);
         }
     }
 }
